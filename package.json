@@ -10,8 +10,24 @@
     "test": "jest"
   },
   "dependencies": {
+    "@react-native-community/geolocation": "^3.4.0",
+    "@react-navigation/bottom-tabs": "^7.3.12",
+    "@react-navigation/elements": "^2.4.1",
+    "@react-navigation/native": "^7.1.8",
+    "@react-navigation/native-stack": "^7.3.10",
+    "axios": "^1.8.4",
+    "buffer": "^6.0.3",
+    "firebase": "^11.6.0",
     "react": "19.0.0",
-    "react-native": "0.79.1"
+    "react-native": "0.79.1",
+    "react-native-geolocation-service": "^5.3.1",
+    "react-native-gesture-handler": "^2.25.0",
+    "react-native-maps": "^1.22.0",
+    "react-native-reanimated": "^3.17.5",
+    "react-native-safe-area-context": "^5.4.0",
+    "react-native-screens": "^4.10.0",
+    "react-native-vector-icons": "^10.2.0",
+    "rn-sliding-up-panel": "^2.4.6"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
