@@ -32,8 +32,8 @@ export default function SlidePanel({ visible, station, onClose, eta, distance, a
   if (!visible || !station) return null;
 
   const imageMap = {
-    monfri: require('../assets/images/mon_fri_schedule.jpg'),
-    tuewedthu: require('../assets/images/tue_wed_thu_schedule.jpg'),
+    monfri: require('../assets/images/mon_fri_schedule.png'),
+    tuewedthu: require('../assets/images/tue_wed_thu_schedule.png'),
   };
 
   const formatETA = (eta) => {
