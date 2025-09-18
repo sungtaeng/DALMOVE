@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
-import {View,Text,StyleSheet,Dimensions,Pressable,Animated,Image,TouchableOpacity,} from 'react-native';
+import { View, Text, StyleSheet, Dimensions, Pressable, Animated, Image, TouchableOpacity } from 'react-native';
 import SlidingUpPanel from 'rn-sliding-up-panel';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { height } = Dimensions.get('window');
 
-export default function SlidePanel({ visible, station, onClose, eta, distance, arrivalTime }) {
+export default function SlidePanel({ visible, station, onClose, eta, distance, arrivalTime, crowd = 0 }) {
   const panelRef = useRef();
   const animatedValue = useRef(new Animated.Value(0)).current;
   const insets = useSafeAreaInsets();
@@ -44,6 +44,8 @@ export default function SlidePanel({ visible, station, onClose, eta, distance, a
     return `${minutes}분 ${seconds}초`;
   };
 
+  const badgeColor = crowd === 0 ? '#43A047' : crowd <= 5 ? '#FBC02D' : '#E53935';
+
   return (
     <>
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
@@ -58,10 +60,22 @@ export default function SlidePanel({ visible, station, onClose, eta, distance, a
         <View style={styles.panel}>
           <View style={styles.handle} />
           <View style={[styles.content, isFullScreen ? { paddingTop: insets.top + 60 } : { marginTop: 30 }]}>
-            <Text style={styles.title}>{station.title}</Text>
-            <Text style={styles.subtitle}>걸리는 시간: {formatETA(eta)} / 거리: {distance || '?'} km</Text>
-            <Text style={styles.subtitle}>도착 예상 시간: {arrivalTime || '계산 중...'}</Text>
+            {/* 헤더 */}
+            <View style={{ alignItems: 'center', gap: 6 }}>
+              <Text style={styles.title}>{station.title}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <Text style={styles.subtitle}>
+                  걸리는 시간: {formatETA(eta)} / 거리: {distance || '?'} km
+                </Text>
+                {/* 혼잡도 배지 */}
+                <View style={{ backgroundColor: badgeColor, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 }}>
+                  <Text style={{ color: '#000', fontWeight: '700' }}>대기 {crowd}명</Text>
+                </View>
+              </View>
+              <Text style={styles.subtitle}>도착 예상 시간: {arrivalTime || '계산 중...'}</Text>
+            </View>
 
+            {/* 탭 */}
             <View style={styles.tabContainer}>
               <TouchableOpacity
                 onPress={() => setSelectedTab('monfri')}
@@ -78,12 +92,9 @@ export default function SlidePanel({ visible, station, onClose, eta, distance, a
               </TouchableOpacity>
             </View>
 
+            {/* 이미지 */}
             <View style={styles.imageContainer}>
-              <Image
-                source={imageMap[selectedTab]}
-                style={styles.image}
-                resizeMode="contain"
-              />
+              <Image source={imageMap[selectedTab]} style={styles.image} resizeMode="contain" />
             </View>
           </View>
         </View>
@@ -118,7 +129,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#555',
     alignSelf: 'center',
-    marginBottom: 16,
+    marginBottom: 8,
   },
   tabContainer: {
     flexDirection: 'row',
