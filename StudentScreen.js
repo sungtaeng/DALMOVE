@@ -1,26 +1,22 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Dimensions, Alert, TouchableOpacity } from 'react-native';
+import {View,Text,StyleSheet,Dimensions,Alert,TouchableOpacity,Animated,} from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE, Polyline } from 'react-native-maps';
 import { db } from './firebaseConfig';
 import { ref, onValue } from 'firebase/database';
 import Geolocation from '@react-native-community/geolocation';
 import axios from 'axios';
 import SlidePanel from './components/SlidePanel';
-import { buildCumulativeKm, progressKmOnRoute, passedStopIndex, haversineKm } from './utils/routeProgress';
 
 const { height } = Dimensions.get('window');
-
-// ⚠️ 현재는 클라이언트에서 직접 호출(테스트용). 실제 배포시 서버 프록시로 교체 권장.
 const NAVER_CLIENT_ID = 'u6w3cppkl8';
 const NAVER_CLIENT_SECRET = '7kMTpyh0B2rScqRev2pwcwGYb9WZEJwT7qyv4GvN';
 
-// 노선 순서: 기흥역 출발 → 강남대역 → 샬롬관 → 교육관 → 이공관 → 스타벅스 → 기흥역 도착
 const STATIONS = [
   { id: 'station1', title: '기흥역 출발', lat: 37.274514, lng: 127.116160 },
-  { id: 'station2', title: '강남대역',   lat: 37.270780, lng: 127.125569 },
-  { id: 'station3', title: '샬롬관 앞',  lat: 37.274566, lng: 127.130307 },
-  { id: 'station4', title: '교육관 앞',  lat: 37.275690, lng: 127.133470 },
-  { id: 'station5', title: '이공관 앞',  lat: 37.276645, lng: 127.134479 },
+  { id: 'station2', title: '강남대역', lat: 37.270780, lng: 127.125569 },
+  { id: 'station3', title: '샬롬관 앞', lat: 37.274566, lng: 127.130307 },
+  { id: 'station4', title: '교육관 앞', lat: 37.275690, lng: 127.133470 },
+  { id: 'station5', title: '이공관 앞', lat: 37.276645, lng: 127.134479 },
   { id: 'station6', title: '스타벅스 앞', lat: 37.270928, lng: 127.125917 },
   { id: 'station7', title: '기흥역 도착', lat: 37.274618, lng: 127.116129 },
 ];
@@ -35,55 +31,53 @@ export default function StudentScreen() {
   const [selectedStation, setSelectedStation] = useState(null);
   const [routeCoords, setRouteCoords] = useState([]);
 
+  const animatedValue = useRef(new Animated.Value(0)).current;
   const panelRef = useRef();
   const mapRef = useRef();
 
-  // === 경로 진행도 계산 준비 ===
-  const CUM_KM = useRef(buildCumulativeKm(STATIONS)).current;
-  const lastPassedIdxRef = useRef(0); // 진행도는 증가만 허용(역행 방지)
-
-  const getPassedStopIdx = (driverLoc) => {
-    const { totalKm } = progressKmOnRoute(STATIONS, CUM_KM, driverLoc);
-    return passedStopIndex(CUM_KM, totalKm, 60); // 60m 여유로 '지남' 판정
+  const getDistance = (loc1, loc2) => {
+    const R = 6371;
+    const dLat = (loc2.lat - loc1.lat) * Math.PI / 180;
+    const dLng = (loc2.lng - loc1.lng) * Math.PI / 180;
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(loc1.lat * Math.PI / 180) *
+        Math.cos(loc2.lat * Math.PI / 180) *
+        Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
   };
 
-  const getMonotonicPassedIdx = (driverLoc) => {
-    const idx = getPassedStopIdx(driverLoc);
-    if (idx >= lastPassedIdxRef.current) {
-      lastPassedIdxRef.current = idx;
-    }
-    return lastPassedIdxRef.current;
-  };
-
-  // 순환 노선 루프 재시작 감지 (종점 → 다시 출발점으로)
-  const loopResetIfNeeded = (driverLoc) => {
-    const last = lastPassedIdxRef.current; // 0~6
-    const nearStart = haversineKm(driverLoc, STATIONS[0]) < 0.08; // 80m 이내면 출발점 근처
-    const farFromEnd = haversineKm(driverLoc, STATIONS[STATIONS.length - 1]) > 0.2; // 종점과는 멀다
-    if (last >= STATIONS.length - 2 && nearStart && farFromEnd) {
-      lastPassedIdxRef.current = 0;
-    }
-  };
-
-  const getDistanceKm = (loc1, loc2) => {
-    return haversineKm(loc1, loc2);
+  const findNearestPassedStop = (driverLoc) => {
+    let minIndex = 0;
+    let minDist = Infinity;
+    STATIONS.forEach((station, idx) => {
+      const d = getDistance(driverLoc, station);
+      if (d < minDist) {
+        minDist = d;
+        minIndex = idx;
+      }
+    });
+    return minIndex;
   };
 
   const getRouteInfo = async (origin, goal) => {
     try {
-      // 진행도 기반으로 현재 "지나간 정류장" 인덱스 계산
-      const currentIdx = getMonotonicPassedIdx(origin);
       const goalIdx = STATIONS.findIndex(s => s.id === goal.id);
+      const currentIdx = findNearestPassedStop(origin);
 
-      let midStations = STATIONS.filter((_, idx) => idx > currentIdx && idx < goalIdx);
+      let midStations = STATIONS.filter((_, idx) =>
+        idx > currentIdx && idx < goalIdx
+      );
 
-      // 규칙: 스타벅스/기흥역 도착으로 갈 때, 이공관을 아직 지나지 않았다면 반드시 경유
+      const egongwan = STATIONS.find(s => s.id === 'station5');
       const egongwanIdx = STATIONS.findIndex(s => s.id === 'station5');
-      const isGoingToStarbucksOrGiheung = (goal.id === 'station6' || goal.id === 'station7');
+      const isGoingToStarbucksOrGiheung = goal.id === 'station6' || goal.id === 'station7';
       const hasPassedEgongwan = currentIdx >= egongwanIdx;
+
       if (isGoingToStarbucksOrGiheung && !hasPassedEgongwan) {
         if (!midStations.some(s => s.id === 'station5')) {
-          midStations = [STATIONS[egongwanIdx], ...midStations];
+          midStations = [egongwan, ...midStations];
         }
       }
 
@@ -94,6 +88,7 @@ export default function StudentScreen() {
         goal: `${goal.lng},${goal.lat}`,
         option: 'trafast',
       };
+
       if (waypoints) params.waypoints = waypoints;
 
       const res = await axios.get('https://maps.apigw.ntruss.com/map-direction/v1/driving', {
@@ -115,21 +110,8 @@ export default function StudentScreen() {
 
         setEta(etaMin);
         setDistance(distanceKm);
-        setArrivalTime(
-          arrival.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
-        );
-
-        const coords = path.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
-        setRouteCoords(coords);
-        // 경로에 맞춰 카메라 자동 맞춤
-        if (coords.length > 1) {
-          requestAnimationFrame(() => {
-            mapRef.current?.fitToCoordinates(coords, {
-              edgePadding: { top: 80, bottom: 320, left: 60, right: 60 },
-              animated: true,
-            });
-          });
-        }
+        setArrivalTime(arrival.toLocaleTimeString());
+        setRouteCoords(path.map(([lng, lat]) => ({ latitude: lat, longitude: lng })));
       } else {
         Alert.alert('경로 데이터를 불러오지 못했습니다.');
       }
@@ -152,7 +134,6 @@ export default function StudentScreen() {
       if (data?.latitude && data?.longitude) {
         const origin = { lat: data.latitude, lng: data.longitude };
         setDriverLocation(origin);
-        loopResetIfNeeded(origin); // 순환 루프 재시작 감지
       }
     });
     return () => unsubscribe();
@@ -216,7 +197,7 @@ export default function StudentScreen() {
           Geolocation.getCurrentPosition(
             (pos) => {
               setLocation(pos.coords);
-              mapRef.current?.animateToRegion({
+              mapRef.current.animateToRegion({
                 latitude: pos.coords.latitude,
                 longitude: pos.coords.longitude,
                 latitudeDelta: 0.005,
