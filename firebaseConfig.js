@@ -36,7 +36,7 @@ function getDeviceId() {
   }
   return global.__deviceId;
 }
-const TTL_MS = 120 * 1000;
+const TTL_MS = 15 * 1000;
 
 export async function setPresence(stopId, isWaiting) {
   const deviceId = getDeviceId();

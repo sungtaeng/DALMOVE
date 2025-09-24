@@ -42,7 +42,7 @@ export default function StudentScreen() {
   // 지오펜스/체류 파라미터
   const GEOFENCE_M = 80;
   const EXIT_M = 120;
-  const DWELL_MS = 120000;
+  const DWELL_MS = 100000;
   const HEARTBEAT_MS = 30000;
 
   const dwellStartRef = useRef(null);
