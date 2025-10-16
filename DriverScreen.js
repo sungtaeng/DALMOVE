@@ -1,5 +1,15 @@
+// DriverScreen.js
 import React, { useState, useEffect, useRef } from 'react';
-import {View,Text,StyleSheet,Alert,PermissionsAndroid,Platform,TouchableOpacity} from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Alert,
+  PermissionsAndroid,
+  Platform,
+  TouchableOpacity,
+  TextInput,
+} from 'react-native';
 import Geolocation from '@react-native-community/geolocation';
 import { db } from './firebaseConfig';
 import { ref, set, remove } from 'firebase/database';
@@ -8,6 +18,7 @@ const DriverScreen = () => {
   const [location, setLocation] = useState({ latitude: 0, longitude: 0 });
   const [address, setAddress] = useState('');
   const [isRunning, setIsRunning] = useState(false);
+  const [driverId, setDriverId] = useState('driver1'); // ✅ 여러 대 버스 구분용
   const watchId = useRef(null);
 
   const requestPermission = async () => {
@@ -30,18 +41,18 @@ const DriverScreen = () => {
 
     setIsRunning(true);
     watchId.current = Geolocation.watchPosition(
-      position => {
+      (position) => {
         const { latitude, longitude } = position.coords;
         setLocation({ latitude, longitude });
         getAddressFromCoords(latitude, longitude);
         saveLocationToFirebase(latitude, longitude);
       },
-      error => Alert.alert('위치 오류', error.message),
+      (error) => Alert.alert('위치 오류', error.message),
       {
         enableHighAccuracy: false,
         distanceFilter: 1,
         interval: 10000,
-        fastestInterval: 5000
+        fastestInterval: 5000,
       }
     );
   };
@@ -52,13 +63,13 @@ const DriverScreen = () => {
     if (!hasPermission) return;
 
     Geolocation.getCurrentPosition(
-      position => {
+      (position) => {
         const { latitude, longitude } = position.coords;
         setLocation({ latitude, longitude });
         getAddressFromCoords(latitude, longitude);
         saveLocationToFirebase(latitude, longitude);
       },
-      error => Alert.alert('위치 오류', error.message),
+      (error) => Alert.alert('위치 오류', error.message),
       { enableHighAccuracy: true }
     );
   };
@@ -69,9 +80,9 @@ const DriverScreen = () => {
       watchId.current = null;
     }
     setIsRunning(false);
-    remove(ref(db, 'drivers/driver1'))
+    remove(ref(db, `drivers/${driverId}`)) // ✅ 본인 노드만 정리
       .then(() => console.log('🛑 위치 전송 중지'))
-      .catch(err => console.error(err));
+      .catch((err) => console.error(err));
   };
 
   const API_KEY = 'AIzaSyASr2mxhFez1B-Va5HbxsIE28fbZsPLRYI';
@@ -91,24 +102,37 @@ const DriverScreen = () => {
   };
 
   const saveLocationToFirebase = (latitude, longitude) => {
-    const locationRef = ref(db, 'drivers/driver1');
+    const locationRef = ref(db, `drivers/${driverId}`); // ✅ driverId별 저장
     set(locationRef, {
       latitude,
       longitude,
       address,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     })
       .then(() => console.log('📡 Firebase 저장 완료'))
-      .catch(error => console.error('❌ 저장 실패:', error));
+      .catch((error) => console.error('❌ 저장 실패:', error));
   };
 
   useEffect(() => {
-    startWatchingLocation(); // 앱 열릴 때 자동으로 시작하고 싶다면 유지
+    // 앱 시작 시 자동 시작을 원하면 유지
+    // startWatchingLocation();
   }, []);
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>🚗 Driver 위치 정보</Text>
+
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <Text>Driver ID:</Text>
+        <TextInput
+          value={driverId}
+          onChangeText={setDriverId}
+          placeholder="driver1"
+          style={{ borderWidth: 1, borderColor: '#ccc', paddingHorizontal: 10, borderRadius: 8, minWidth: 100 }}
+          editable={!isRunning}
+        />
+      </View>
+
       <Text style={styles.text}>위도: {location.latitude.toFixed(6)}</Text>
       <Text style={styles.text}>경도: {location.longitude.toFixed(6)}</Text>
 
@@ -134,9 +158,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 24,
     borderRadius: 12,
-    marginTop: 10
+    marginTop: 10,
   },
-  buttonText: { color: 'yellow', fontSize: 16, fontWeight: 'bold' }
+  buttonText: { color: 'yellow', fontSize: 16, fontWeight: 'bold' },
 });
 
 export default DriverScreen;

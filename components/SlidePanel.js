@@ -5,7 +5,16 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { height } = Dimensions.get('window');
 
-export default function SlidePanel({ visible, station, onClose, eta, distance, arrivalTime, crowd = 0 }) {
+export default function SlidePanel({
+  visible,
+  station,
+  onClose,
+  eta,
+  distance,
+  arrivalTime,
+  crowd = 0,
+  onSwitchGiheung, // ✅ 추가: 기흥역 출발/도착 전환 콜백
+}) {
   const panelRef = useRef();
   const animatedValue = useRef(new Animated.Value(0)).current;
   const insets = useSafeAreaInsets();
@@ -31,16 +40,23 @@ export default function SlidePanel({ visible, station, onClose, eta, distance, a
 
   if (!visible || !station) return null;
 
+  // ✅ 기흥역인지 판단 (station1: 출발 / station7: 도착)
+  const isGiheung = station?.id === 'station1' || station?.id === 'station7';
+  const giheungActive = station?.id === 'station1' ? 'depart' : 'arrive';
+
   const imageMap = {
     monfri: require('../assets/images/mon_fri_schedule.png'),
     tuewedthu: require('../assets/images/tue_wed_thu_schedule.png'),
   };
 
-  const formatETA = (eta) => {
-    if (!eta) return '계산 중...';
-    const totalSeconds = parseFloat(eta) * 60;
+  const formatETA = (val) => {
+    if (!val) return '계산 중...';
+    // 부모에서 분 단위 문자열 "12.3"을 넘기는 경우와 "12분 30초" 모두 대응
+    if (typeof val === 'string' && val.includes('분')) return val;
+    const totalMin = parseFloat(val) || 0;
+    const totalSeconds = Math.round(totalMin * 60);
     const minutes = Math.floor(totalSeconds / 60);
-    const seconds = Math.round(totalSeconds % 60);
+    const seconds = totalSeconds % 60;
     return `${minutes}분 ${seconds}초`;
   };
 
@@ -61,13 +77,40 @@ export default function SlidePanel({ visible, station, onClose, eta, distance, a
           <View style={styles.handle} />
           <View style={[styles.content, isFullScreen ? { paddingTop: insets.top + 60 } : { marginTop: 30 }]}>
             {/* 헤더 */}
-            <View style={{ alignItems: 'center', gap: 6 }}>
+            <View style={{ alignItems: 'center', gap: 8 }}>
               <Text style={styles.title}>{station.title}</Text>
+
+              {/* ✅ 기흥역 출발/도착 세그먼트 */}
+              {isGiheung && (
+                <View style={styles.segmentWrap}>
+                  <TouchableOpacity
+                    style={[styles.segmentBtn, giheungActive === 'depart' && styles.segmentActive]}
+                    onPress={() => {
+                      if (giheungActive !== 'depart' && onSwitchGiheung) onSwitchGiheung('station1');
+                    }}
+                  >
+                    <Text style={[styles.segmentText, giheungActive === 'depart' && styles.segmentTextActive]}>
+                      기흥역 출발
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.segmentBtn, giheungActive === 'arrive' && styles.segmentActive]}
+                    onPress={() => {
+                      if (giheungActive !== 'arrive' && onSwitchGiheung) onSwitchGiheung('station7');
+                    }}
+                  >
+                    <Text style={[styles.segmentText, giheungActive === 'arrive' && styles.segmentTextActive]}>
+                      기흥역 도착
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                 <Text style={styles.subtitle}>
-                  걸리는 시간: {formatETA(eta)} / 거리: {distance || '?'} km
+                  걸리는 시간: {formatETA(eta)} / 거리: {distance ?? '?'} km
                 </Text>
-                {/* 혼잡도 배지 */}
                 <View style={{ backgroundColor: badgeColor, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 }}>
                   <Text style={{ color: '#000', fontWeight: '700' }}>대기 {crowd}명</Text>
                 </View>
@@ -75,7 +118,7 @@ export default function SlidePanel({ visible, station, onClose, eta, distance, a
               <Text style={styles.subtitle}>도착 예상 시간: {arrivalTime || '계산 중...'}</Text>
             </View>
 
-            {/* 탭 */}
+            {/* 요일 탭 */}
             <View style={styles.tabContainer}>
               <TouchableOpacity
                 onPress={() => setSelectedTab('monfri')}
@@ -123,18 +166,45 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     alignSelf: 'center',
-    marginBottom: 6,
   },
   subtitle: {
     fontSize: 16,
     color: '#555',
     alignSelf: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
   },
+
+  // ✅ 기흥역 세그먼트
+  segmentWrap: {
+    flexDirection: 'row',
+    backgroundColor: '#F2F2F7',
+    padding: 4,
+    borderRadius: 12,
+    gap: 6,
+    marginTop: 6,
+  },
+  segmentBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+  },
+  segmentActive: {
+    backgroundColor: '#E5E5EA',
+  },
+  segmentText: {
+    fontSize: 14,
+    color: '#333',
+    fontWeight: '600',
+  },
+  segmentTextActive: {
+    color: '#111',
+  },
+
   tabContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginBottom: 20,
+    marginTop: 14,
+    marginBottom: 16,
   },
   tabButton: {
     paddingVertical: 10,
@@ -167,6 +237,5 @@ const styles = StyleSheet.create({
   image: {
     width: '100%',
     height: '100%',
-    resizeMode: 'contain',
   },
 });
