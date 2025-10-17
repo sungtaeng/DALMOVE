@@ -7,7 +7,7 @@ import { Marker } from 'react-native-maps';
 const MOON_IMG = require('../assets/images/splash/moon.png');
 const BUS_IMG  = require('../assets/images/splash/bus.png');
 
-export function StationPin({ station, size = 50, onPress }) {
+export function StationPin({ station, size = 45, onPress }) {
   return (
     <Marker
       coordinate={{ latitude: station.lat, longitude: station.lng }}
@@ -21,7 +21,7 @@ export function StationPin({ station, size = 50, onPress }) {
   );
 }
 
-export function GiheungPin({ coord, size = 50, onPress }) {
+export function GiheungPin({ coord, size = 45, onPress }) {
   return (
     <Marker
       coordinate={coord}

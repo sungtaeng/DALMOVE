@@ -11,13 +11,14 @@ import { GiheungPin, StationPin, BusPin } from './components/MapPins';
 import SlidePanel from './components/SlidePanel';
 import { subscribeCrowdRTDB } from './firebaseConfig';
 
+// 초기 동작본: useBestETA에 키를 넘겨줌
 const NAVER_CLIENT_ID = 'u6w3cppkl8';
 const NAVER_CLIENT_SECRET = '7kMTpyh0B2rScqRev2pwcwGYb9WZEJwT7qyv4GvN';
 
 export default function StudentScreen() {
   const mapRef = useRef();
-  const driverLocations = useDrivers();          // RTDB 드라이버 위치
-  usePresenceGeofence();                          // 대기 인원 프레즌스 관리
+  const driverLocations = useDrivers();
+  usePresenceGeofence();
 
   const { eta, distance, arrivalTime, routeCoords, computeForStation, setRouteCoords } =
     useBestETA(driverLocations, { keyId: NAVER_CLIENT_ID, keySecret: NAVER_CLIENT_SECRET });
@@ -27,7 +28,6 @@ export default function StudentScreen() {
   const [crowd, setCrowd] = useState(0);
   const lastGiheungTargetRef = useRef('station1');
 
-  // 정류장 핀 클릭
   const handleStationPress = async (station) => {
     setSelectedStation(station);
     setPanelVisible(true);
@@ -35,9 +35,8 @@ export default function StudentScreen() {
     if (!res.ok) Alert.alert('안내', '해당 정류장으로 향하는 버스를 찾지 못했습니다.');
   };
 
-  // 기흥역 그룹 핀 클릭 → 마지막 선택 탭(출발/도착) 기준
   const handleGiheungPress = async () => {
-    const id = lastGiheungTargetRef.current; // 'station1' | 'station7'
+    const id = lastGiheungTargetRef.current;
     const st = STATIONS.find((s) => s.id === id);
     if (!st) return;
     setSelectedStation(st);
@@ -46,7 +45,6 @@ export default function StudentScreen() {
     if (!res.ok) Alert.alert('안내', '기흥역으로 향하는 버스를 찾지 못했습니다.');
   };
 
-  // SlidePanel 내부 탭 전환 (출발/도착)
   const switchGiheung = async (targetId) => {
     lastGiheungTargetRef.current = targetId;
     const st = STATIONS.find((s) => s.id === targetId);
@@ -57,7 +55,6 @@ export default function StudentScreen() {
     if (!res.ok) Alert.alert('안내', '해당 방향으로 향하는 버스를 찾지 못했습니다.');
   };
 
-  // 선택된 정류장 crowd 실시간 반영
   useEffect(() => {
     if (!panelVisible || !selectedStation?.id) return;
     const off = subscribeCrowdRTDB(selectedStation.id, setCrowd);
@@ -78,29 +75,22 @@ export default function StudentScreen() {
           longitudeDelta: 0.01,
         }}
       >
-        {/* 정류장 핀 (기흥역 두 핀 제외) */}
         {STATIONS.filter((s) => !GIHEUNG_IDS.includes(s.id)).map((s) => (
           <StationPin key={s.id} station={s} onPress={() => handleStationPress(s)} />
         ))}
 
-        {/* 기흥역 그룹 핀 (1개) */}
         <GiheungPin coord={getGiheungGroupCoord()} onPress={handleGiheungPress} />
 
-        {/* 버스 핀 (여러 대) */}
         {Object.entries(driverLocations).map(([id, p]) => (
           <BusPin key={id} id={id} point={p} />
         ))}
 
-        {/* 경로 라인 */}
         {routeCoords.length > 0 && (
           <Polyline coordinates={routeCoords} strokeWidth={4} strokeColor="#007AFF" />
         )}
       </MapView>
 
-      <TouchableOpacity
-        style={styles.locationButton}
-        onPress={() => { setRouteCoords([]); }}
-      >
+      <TouchableOpacity style={styles.locationButton} onPress={() => setRouteCoords([])}>
         <Text style={{ fontSize: 22, color: '#007AFF' }}>⌖</Text>
       </TouchableOpacity>
 

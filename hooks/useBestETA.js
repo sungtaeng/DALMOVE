@@ -24,7 +24,7 @@ export default function useBestETA(driverLocations, naverKeys) {
         if (!bus?.lat || !bus?.lng) return null;
         const busIdx = findNearestPassedStop({ lat: bus.lat, lng: bus.lng });
         const steps = forwardSteps(busIdx, goalIdx);
-        if (steps === 0) return null;
+        if (steps === 0) return null; // 초기 동작본: 같은 정류장으로 판단되면 제외
         return { busId, origin: { lat: bus.lat, lng: bus.lng } };
       })
       .filter(Boolean);
