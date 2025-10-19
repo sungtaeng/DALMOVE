@@ -1,122 +1,71 @@
 // DriverScreen.js
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  Alert,
-  PermissionsAndroid,
-  Platform,
-  TouchableOpacity,
-  TextInput,
+  View, Text, StyleSheet, Alert, PermissionsAndroid, Platform, TouchableOpacity, TextInput,
 } from 'react-native';
-import Geolocation from '@react-native-community/geolocation';
-import { db } from './firebaseConfig';
-import { ref, set, remove } from 'firebase/database';
 
-const DriverScreen = () => {
-  const [location, setLocation] = useState({ latitude: 0, longitude: 0 });
+// ✅ 확장자(.js)까지 포함해서 named import로 정확히 가져오기
+import { addListener, start, stop, pushOnce, isRunning } from './services/driverTracker.js';
+
+const GOOGLE_GEOCODE_KEY = 'AIzaSyASr2mxhFez1B-Va5HbxsIE28fbZsPLRYI';
+
+async function requestPermission() {
+  if (Platform.OS === 'android') {
+    const granted = await PermissionsAndroid.request(
+      PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
+    );
+    return granted === PermissionsAndroid.RESULTS.GRANTED;
+  }
+  return true;
+}
+
+export default function DriverScreen() {
+  const [running, setRunning] = useState(() =>
+    typeof isRunning === 'function' ? isRunning() : !!isRunning
+  );
+  const [driverId, setDriverId] = useState('driver1');
+  const [loc, setLoc] = useState({ latitude: 0, longitude: 0 });
   const [address, setAddress] = useState('');
-  const [isRunning, setIsRunning] = useState(false);
-  const [driverId, setDriverId] = useState('driver1'); // ✅ 여러 대 버스 구분용
-  const watchId = useRef(null);
-
-  const requestPermission = async () => {
-    if (Platform.OS === 'android') {
-      const granted = await PermissionsAndroid.request(
-        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
-      );
-      return granted === PermissionsAndroid.RESULTS.GRANTED;
-    }
-    return true;
-  };
-
-  const startWatchingLocation = async () => {
-    const hasPermission = await requestPermission();
-    if (!hasPermission) {
-      Alert.alert('위치 권한이 없습니다.');
-      return;
-    }
-    if (watchId.current !== null) return;
-
-    setIsRunning(true);
-    watchId.current = Geolocation.watchPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        setLocation({ latitude, longitude });
-        getAddressFromCoords(latitude, longitude);
-        saveLocationToFirebase(latitude, longitude);
-      },
-      (error) => Alert.alert('위치 오류', error.message),
-      {
-        enableHighAccuracy: false,
-        distanceFilter: 1,
-        interval: 10000,
-        fastestInterval: 5000,
-      }
-    );
-  };
-
-  const refreshLocation = async () => {
-    if (!isRunning) return;
-    const hasPermission = await requestPermission();
-    if (!hasPermission) return;
-
-    Geolocation.getCurrentPosition(
-      (position) => {
-        const { latitude, longitude } = position.coords;
-        setLocation({ latitude, longitude });
-        getAddressFromCoords(latitude, longitude);
-        saveLocationToFirebase(latitude, longitude);
-      },
-      (error) => Alert.alert('위치 오류', error.message),
-      { enableHighAccuracy: true }
-    );
-  };
-
-  const stopWatchingLocation = () => {
-    if (watchId.current !== null) {
-      Geolocation.clearWatch(watchId.current);
-      watchId.current = null;
-    }
-    setIsRunning(false);
-    remove(ref(db, `drivers/${driverId}`)) // ✅ 본인 노드만 정리
-      .then(() => console.log('🛑 위치 전송 중지'))
-      .catch((err) => console.error(err));
-  };
-
-  const API_KEY = 'AIzaSyASr2mxhFez1B-Va5HbxsIE28fbZsPLRYI';
-  const getAddressFromCoords = async (latitude, longitude) => {
-    try {
-      const response = await fetch(
-        `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${API_KEY}`
-      );
-      const data = await response.json();
-      if (data.status === 'OK') {
-        const addr = data.results[0].formatted_address;
-        setAddress(addr);
-      }
-    } catch (error) {
-      console.error('주소 변환 실패:', error);
-    }
-  };
-
-  const saveLocationToFirebase = (latitude, longitude) => {
-    const locationRef = ref(db, `drivers/${driverId}`); // ✅ driverId별 저장
-    set(locationRef, {
-      latitude,
-      longitude,
-      address,
-      timestamp: new Date().toISOString(),
-    })
-      .then(() => console.log('📡 Firebase 저장 완료'))
-      .catch((error) => console.error('❌ 저장 실패:', error));
-  };
 
   useEffect(() => {
-    // 앱 시작 시 자동 시작을 원하면 유지
-    // startWatchingLocation();
+    // 문제 계속되면 여기 잠깐 켜고 확인: addListener, start가 함수인지
+    // console.log('tracker fns:', typeof addListener, typeof start, typeof stop, typeof pushOnce, typeof isRunning);
+
+    const off = addListener((u) => {
+      if (u?.stopped) { setRunning(false); return; }
+      if (u?.error) { Alert.alert('위치 오류', u.error); return; }
+      if (u?.lat) {
+        setLoc({ latitude: u.lat, longitude: u.lng });
+        setAddress(u.address || '');
+      }
+    });
+    return off;
   }, []);
+
+  const onStart = async () => {
+    if (running) return;
+    const ok = await requestPermission();
+    if (!ok) { Alert.alert('권한 필요', '위치 권한을 허용해주세요.'); return; }
+
+    start({
+      driverId,
+      highAccuracy: true,
+      distanceFilter: 5,
+      intervalMs: 5000,
+      reverseGeocode: true,
+      geocodeApiKey: GOOGLE_GEOCODE_KEY,
+    });
+    setRunning(true);
+  };
+
+  const onRefresh = async () => { await pushOnce(); };
+
+  const onStop = async () => {
+    await stop({ removeFromDb: true });
+    setRunning(false);
+    setLoc({ latitude: 0, longitude: 0 });
+    setAddress('');
+  };
 
   return (
     <View style={styles.container}>
@@ -128,39 +77,39 @@ const DriverScreen = () => {
           value={driverId}
           onChangeText={setDriverId}
           placeholder="driver1"
-          style={{ borderWidth: 1, borderColor: '#ccc', paddingHorizontal: 10, borderRadius: 8, minWidth: 100 }}
-          editable={!isRunning}
+          style={{ borderWidth: 1, borderColor: '#ccc', paddingHorizontal: 10, borderRadius: 8, minWidth: 120 }}
+          editable={!running}
         />
       </View>
 
-      <Text style={styles.text}>위도: {location.latitude.toFixed(6)}</Text>
-      <Text style={styles.text}>경도: {location.longitude.toFixed(6)}</Text>
+      <Text style={styles.text}>상태: {running ? '운행 중' : '대기'}</Text>
+      <Text style={styles.text}>위도: {loc.latitude ? loc.latitude.toFixed(6) : '-'}</Text>
+      <Text style={styles.text}>경도: {loc.longitude ? loc.longitude.toFixed(6) : '-'}</Text>
+      <Text style={styles.text}>주소: {address || '-'}</Text>
 
-      <TouchableOpacity style={styles.button} onPress={startWatchingLocation}>
+      <TouchableOpacity style={styles.button} onPress={onStart}>
         <Text style={styles.buttonText}>운행중</Text>
       </TouchableOpacity>
-      <TouchableOpacity style={styles.button} onPress={refreshLocation}>
+      <TouchableOpacity style={styles.button} onPress={onRefresh} disabled={!running}>
         <Text style={styles.buttonText}>새로고침</Text>
       </TouchableOpacity>
-      <TouchableOpacity style={styles.button} onPress={stopWatchingLocation}>
+      <TouchableOpacity style={styles.button} onPress={onStop} disabled={!running}>
         <Text style={styles.buttonText}>운행 종료</Text>
       </TouchableOpacity>
     </View>
   );
-};
+}
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: 'white' },
-  title: { fontSize: 22, fontWeight: 'bold', marginBottom: 20 },
-  text: { fontSize: 16, marginBottom: 10 },
-  button: {
-    backgroundColor: 'black',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    marginTop: 10,
+  container:{ flex:1, justifyContent:'center', alignItems:'center', backgroundColor:'white' },
+  title:{ fontSize:22, fontWeight:'bold', marginBottom:20 },
+  text:{ fontSize:16, marginBottom:8 },
+  button:{
+    backgroundColor:'black',
+    paddingVertical:12,
+    paddingHorizontal:24,
+    borderRadius:12,
+    marginTop:10,
   },
-  buttonText: { color: 'yellow', fontSize: 16, fontWeight: 'bold' },
+  buttonText:{ color:'yellow', fontSize:16, fontWeight:'bold' },
 });
-
-export default DriverScreen;

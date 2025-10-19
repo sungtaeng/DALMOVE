@@ -35,7 +35,7 @@ export function GiheungPin({ coord, size = 45, onPress }) {
   );
 }
 
-export function BusPin({ id, point, size = 60 }) {
+export function BusPin({ id, point, size = 50 }) {
   return (
     <Marker
       coordinate={{ latitude: point.lat, longitude: point.lng }}

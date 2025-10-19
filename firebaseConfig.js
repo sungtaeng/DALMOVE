@@ -23,11 +23,15 @@ const firebaseConfig = {
   measurementId: "G-8KVMZEC5JR",
 };
 
-// 🔧 여기! app을 export 해줘야 함
+// ✅ 앱 단일 초기화
 export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
+// ✅ 공용 인스턴스 (모든 곳에서 이걸 import 하도록)
 export const db = getDatabase(app);
 export const firestore = getFirestore(app);
+
+// ✅ 디버깅용: 현재 연결된 RTDB URL (학생 화면/콘솔에서 확인)
+export const rtdbURL = app?.options?.databaseURL || "";
 
 // ===== RTDB presence (no-auth) =====
 function getDeviceId() {

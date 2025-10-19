@@ -21,3 +21,9 @@ export const getGiheungGroupCoord = () => {
 };
 
 export const indexOfStation = (id) => STATIONS.findIndex((s) => s.id === id);
+
+// ✅ 비즈니스 룰: goal이 아래 키면 해당 정류장을 반드시 경유
+export const MUST_PASS_BY = {
+  station6: ['station5'], // 스타벅스 앞 갈 때 이공관 앞은 무조건 거침
+  station7: ['station5'], // 기흥역 도착도 이공관 앞을 무조건 거침
+};

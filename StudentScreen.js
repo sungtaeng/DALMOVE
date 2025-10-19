@@ -1,58 +1,104 @@
-// StudentScreen.js
-import React, { useEffect, useRef, useState } from 'react';
+// /StudentScreen.js
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet, Alert, TouchableOpacity, Text } from 'react-native';
 import MapView, { PROVIDER_GOOGLE, Polyline } from 'react-native-maps';
 
 import { STATIONS, GIHEUNG_IDS, getGiheungGroupCoord } from './constants/stations';
-import useDrivers from './hooks/useDrivers';
+import useDrivers, { fetchDriversOnceStrict } from './hooks/useDrivers';
 import usePresenceGeofence from './hooks/usePresenceGeofence';
 import useBestETA from './hooks/useBestETA';
 import { GiheungPin, StationPin, BusPin } from './components/MapPins';
 import SlidePanel from './components/SlidePanel';
 import { subscribeCrowdRTDB } from './firebaseConfig';
 
-// 초기 동작본: useBestETA에 키를 넘겨줌
-const NAVER_CLIENT_ID = 'u6w3cppkl8';
-const NAVER_CLIENT_SECRET = '7kMTpyh0B2rScqRev2pwcwGYb9WZEJwT7qyv4GvN';
+// VPC Maps Directions 5 키 (네가 준 값 그대로 사용)
+const NAVER_KEYS = {
+  keyId: 'u6w3cppkl8',
+  keySecret: '7kMTpyh0B2rScqRev2pwcwGYb9WZEJwT7qyv4GvN',
+};
 
 export default function StudentScreen() {
   const mapRef = useRef();
-  const driverLocations = useDrivers();
+
+  // 실시간 드라이버 구독 + 지오펜스
+  const { driverLocations } = useDrivers();
   usePresenceGeofence();
 
-  const { eta, distance, arrivalTime, routeCoords, computeForStation, setRouteCoords } =
-    useBestETA(driverLocations, { keyId: NAVER_CLIENT_ID, keySecret: NAVER_CLIENT_SECRET });
+  // 실시간이 비면 스냅샷으로 보강
+  const [snapshotDrivers, setSnapshotDrivers] = useState({});
+  const effectiveDrivers = useMemo(() => {
+    const live = Object.keys(driverLocations).length ? driverLocations : null;
+    return live || snapshotDrivers;
+  }, [driverLocations, snapshotDrivers]);
+
+  const {
+    eta, distance, arrivalTime, routeCoords,
+    computeForStation, setRouteCoords,
+    arrivingSoon, nextEta, nextArrivalTime, nextBusId,
+  } = useBestETA(effectiveDrivers, NAVER_KEYS);
 
   const [panelVisible, setPanelVisible] = useState(false);
   const [selectedStation, setSelectedStation] = useState(null);
   const [crowd, setCrowd] = useState(0);
   const lastGiheungTargetRef = useRef('station1');
+  const tapLockRef = useRef(false);
 
-  const handleStationPress = async (station) => {
+  // 즉시 사용할 드라이버 목록 확보
+  const getDriversNow = async () => {
+    if (Object.keys(driverLocations).length) return driverLocations;
+    if (Object.keys(snapshotDrivers).length) return snapshotDrivers;
+    try {
+      const snap = await fetchDriversOnceStrict();
+      setSnapshotDrivers(snap);
+      return snap;
+    } catch {
+      return {};
+    }
+  };
+
+  const safeOpenPanelAndCompute = async (station) => {
+    if (tapLockRef.current) return;
+    tapLockRef.current = true;
+
+    const driversNow = await getDriversNow();
     setSelectedStation(station);
     setPanelVisible(true);
-    const res = await computeForStation(station);
-    if (!res.ok) Alert.alert('안내', '해당 정류장으로 향하는 버스를 찾지 못했습니다.');
+
+    setTimeout(async () => {
+      if (!Object.keys(driversNow).length) {
+        Alert.alert('안내', '현재 주행 중인 버스를 찾지 못했습니다.');
+        tapLockRef.current = false;
+        return;
+      }
+      const res = await computeForStation(station, driversNow); // override로 즉시 계산
+      if (!res.ok) {
+        if (res.reason === 'naver_error') {
+          const { code, status, message } = res.errorDetails || {};
+          Alert.alert('NAVER 경로 실패', `code:${code}\nstatus:${status}\nmsg:${message}`);
+        } else {
+          Alert.alert('안내', '버스를 찾을 수 없습니다.');
+        }
+      }
+      setTimeout(() => { tapLockRef.current = false; }, 120);
+    }, 60);
   };
 
-  const handleGiheungPress = async () => {
-    const id = lastGiheungTargetRef.current;
-    const st = STATIONS.find((s) => s.id === id);
+  const handleStationPress = (station) => {
+    if (!station?.lat || !station?.lng) return;
+    safeOpenPanelAndCompute(station);
+  };
+
+  const handleGiheungPress = () => {
+    const st = STATIONS.find(s => s.id === lastGiheungTargetRef.current) || STATIONS.find(s => s.id === 'station1');
     if (!st) return;
-    setSelectedStation(st);
-    setPanelVisible(true);
-    const res = await computeForStation(st);
-    if (!res.ok) Alert.alert('안내', '기흥역으로 향하는 버스를 찾지 못했습니다.');
+    safeOpenPanelAndCompute(st);
   };
 
-  const switchGiheung = async (targetId) => {
+  const switchGiheung = (targetId) => {
     lastGiheungTargetRef.current = targetId;
-    const st = STATIONS.find((s) => s.id === targetId);
+    const st = STATIONS.find(s => s.id === targetId);
     if (!st) return;
-    setSelectedStation(st);
-    setPanelVisible(true);
-    const res = await computeForStation(st);
-    if (!res.ok) Alert.alert('안내', '해당 방향으로 향하는 버스를 찾지 못했습니다.');
+    safeOpenPanelAndCompute(st);
   };
 
   useEffect(() => {
@@ -81,7 +127,7 @@ export default function StudentScreen() {
 
         <GiheungPin coord={getGiheungGroupCoord()} onPress={handleGiheungPress} />
 
-        {Object.entries(driverLocations).map(([id, p]) => (
+        {Object.entries(effectiveDrivers).map(([id, p]) => (
           <BusPin key={id} id={id} point={p} />
         ))}
 
@@ -102,6 +148,10 @@ export default function StudentScreen() {
         distance={distance}
         arrivalTime={arrivalTime}
         crowd={crowd}
+        arrivingSoon={arrivingSoon}         // 새로 추가
+        nextEta={nextEta}                   // 새로 추가
+        nextArrivalTime={nextArrivalTime}   // 새로 추가
+        nextBusId={nextBusId}               // 새로 추가
         onSwitchGiheung={switchGiheung}
       />
     </View>

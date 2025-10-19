@@ -1,35 +1,104 @@
 // /services/naverDirections.js
 import axios from 'axios';
-import { STATIONS, indexOfStation } from '../constants/stations';
-import { findNearestPassedStop } from '../utils/geo';
+import { STATIONS, MUST_PASS_BY } from '../constants/stations';
 
-// keys는 훅에서 { keyId, keySecret }로 전달받는 형태(초기 동작본)
-export async function navRouteSummary(origin, goal, { keyId, keySecret }) {
-  const goalIdx = indexOfStation(goal.id);
-  const currentIdx = findNearestPassedStop(origin);
-
-  // 루프 순방향으로 경유지 구성
-  const midStations = [];
-  for (let i = (currentIdx + 1) % STATIONS.length; i !== goalIdx; i = (i + 1) % STATIONS.length) {
-    midStations.push(STATIONS[i]);
+// 좌표 검증/정규화
+function normalizePoint(p) {
+  const lat = Number(p?.lat ?? p?.latitude);
+  const lng = Number(p?.lng ?? p?.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    const e = new Error('BAD_COORDS');
+    e.code = 'BAD_COORDS';
+    throw e;
   }
-  const waypoints = midStations.length ? midStations.map((p) => `${p.lng},${p.lat}`).join('|') : undefined;
+  return { lat, lng };
+}
 
-  const params = { start: `${origin.lng},${origin.lat}`, goal: `${goal.lng},${goal.lat}`, option: 'trafast' };
-  if (waypoints) params.waypoints = waypoints;
+function stationById(id) {
+  return STATIONS.find(s => s.id === id) || null;
+}
 
-  const res = await axios.get('https://naveropenapi.apigw.ntruss.com/map-direction/v1/driving', {
+function dedupeStationsKeepOrder(arr) {
+  const seen = new Set();
+  const out = [];
+  for (const s of arr) {
+    if (!s || !s.id) continue;
+    if (seen.has(s.id)) continue;
+    seen.add(s.id);
+    out.push(s);
+  }
+  return out;
+}
+
+/**
+ * NAVER VPC Maps Directions5 (trafast)
+ * - 실시간 교통 ETA만 사용
+ * - ✅ 반드시 거쳐야 하는 정류장(MUST_PASS_BY)만 waypoints에 넣고,
+ *   나머지는 네이버가 자동 최적 경로로 계산하도록 맡긴다.
+ *   (midStations 전부 강제 경유 ❌)
+ *
+ * @param {Object} originRaw {lat,lng} 또는 {latitude,longitude}
+ * @param {Object} goalRaw   {id,lat,lng}
+ * @param {Object} keys      { keyId, keySecret }
+ */
+export async function navRouteSummary(originRaw, goalRaw, { keyId, keySecret }) {
+  if (!keyId || !keySecret) {
+    const e = new Error('NAVER_KEYS_MISSING');
+    e.code = 'NAVER_KEYS_MISSING';
+    throw e;
+  }
+
+  const origin = normalizePoint(originRaw);
+  const goal   = normalizePoint(goalRaw);
+
+  // ✅ 필수 경유지만 구성 (예: station6/7 → station5 강제)
+  const mustIds = MUST_PASS_BY[goalRaw.id] || [];
+  const mustStations = dedupeStationsKeepOrder(mustIds.map(stationById).filter(Boolean));
+
+  const waypoints = mustStations.length
+    ? mustStations.map(p => `${p.lng},${p.lat}`).join('|')
+    : undefined;
+
+  // 네이버 VPC Maps Directions5 호출
+  const res = await axios.get('https://maps.apigw.ntruss.com/map-direction/v1/driving', {
     headers: {
       'x-ncp-apigw-api-key-id': keyId,
-      'x-ncp-apigw-api-key': keySecret,
+      'x-ncp-apigw-api-key':    keySecret,
     },
-    params,
+    params: {
+      start: `${origin.lng},${origin.lat}`, // x,y = lng,lat
+      goal:  `${goal.lng},${goal.lat}`,
+      option: 'trafast',  // 실시간 교통 반영
+      lang: 'ko',
+      ...(waypoints ? { waypoints } : {}),
+    },
+    timeout: 10000,
+    validateStatus: () => true,
   });
 
+  if (res.status !== 200) {
+    const err = new Error(`NAVER_${res.status}: ${res.data?.message || 'permission/quota error'}`);
+    err.status = res.status;
+    err.code = res.data?.code || `HTTP_${res.status}`;
+    err.response = res.data;
+    throw err;
+  }
+
   const item = res.data?.route?.trafast?.[0];
+  if (!item?.summary?.duration || !Array.isArray(item?.path)) {
+    const err = new Error('NAVER_NO_ROUTE');
+    err.status = 200;
+    err.code = 'NAVER_NO_ROUTE';
+    err.response = res.data;
+    throw err;
+  }
+
   return {
-    duration: item?.summary?.duration ?? Number.MAX_SAFE_INTEGER,
-    distance: item?.summary?.distance ?? null,
-    path: item?.path ?? [],
+    duration: item.summary.duration,          // ms
+    distance: item.summary.distance ?? null,  // m
+    path: item.path,                          // [ [lng,lat], ... ]
+    sections: item.section || [],
+    source: 'vpc_trafast',
+    meta: { pathPoints: item.path.length, bbox: item.summary?.bbox },
   };
 }

@@ -1,16 +1,16 @@
-// App.js
 import React, { useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { View, Text, Button, StyleSheet, Alert, Modal, TextInput, TouchableOpacity } from 'react-native';
 import AntDesign from 'react-native-vector-icons/AntDesign';
+import { SafeAreaProvider } from 'react-native-safe-area-context'; // ✅ 추가
 
 import DriverScreen from './DriverScreen';
 import StudentScreen from './StudentScreen';
 import AlarmScreen from './AlarmScreen';
 import NoticeScreen from './NoticeScreen';
-import SplashScreen from './components/SplashScreen'; // ✅ 추가
+import SplashScreen from './components/SplashScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -84,19 +84,16 @@ const StudentTabs = () => (
 
 export default function App() {
   return (
-    <NavigationContainer>
-      <Stack.Navigator initialRouteName="Splash">
-        {/* ✅ 스플래시 추가 */}
-        <Stack.Screen
-          name="Splash"
-          component={SplashScreen}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen name="Home" component={HomeScreen} options={{ title: '메인 화면' }} />
-        <Stack.Screen name="Driver" component={DriverScreen} options={{ title: '운전자 화면' }} />
-        <Stack.Screen name="StudentTabs" component={StudentTabs} options={{ headerShown: false }} />
-      </Stack.Navigator>
-    </NavigationContainer>
+    <SafeAreaProvider>
+      <NavigationContainer>
+        <Stack.Navigator initialRouteName="Splash">
+          <Stack.Screen name="Splash" component={SplashScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="Home" component={HomeScreen} options={{ title: '메인 화면' }} />
+          <Stack.Screen name="Driver" component={DriverScreen} options={{ title: '운전자 화면' }} />
+          <Stack.Screen name="StudentTabs" component={StudentTabs} options={{ headerShown: false }} />
+        </Stack.Navigator>
+      </NavigationContainer>
+    </SafeAreaProvider>
   );
 }
 
