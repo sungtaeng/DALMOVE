@@ -12,15 +12,17 @@ import {
 } from "firebase/database";
 import { getFirestore } from "firebase/firestore";
 
+import { FIREBASE_CONFIG } from "./config/appConfig";
+
 const firebaseConfig = {
-  apiKey: "AIzaSyA85Se_AWfx7My1LRR43WhXhAZ7uxTVa4o",
-  authDomain: "test4-3168a.firebaseapp.com",
-  databaseURL: "https://test4-3168a-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "test4-3168a",
-  storageBucket: "test4-3168a.firebasestorage.app",
-  messagingSenderId: "1088639479082",
-  appId: "1:1088639479082:web:ac4098d4b05c5553de8253",
-  measurementId: "G-8KVMZEC5JR",
+  apiKey: FIREBASE_CONFIG.apiKey,
+  authDomain: FIREBASE_CONFIG.authDomain,
+  databaseURL: FIREBASE_CONFIG.databaseURL,
+  projectId: FIREBASE_CONFIG.projectId,
+  storageBucket: FIREBASE_CONFIG.storageBucket,
+  messagingSenderId: FIREBASE_CONFIG.messagingSenderId,
+  appId: FIREBASE_CONFIG.appId,
+  measurementId: FIREBASE_CONFIG.measurementId,
 };
 
 // ✅ 앱 단일 초기화

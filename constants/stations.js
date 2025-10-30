@@ -1,29 +1,24 @@
 // /constants/stations.js
 export const STATIONS = [
-  { id: 'station1', title: '기흥역 출발', lat: 37.274514, lng: 127.116160 },
-  { id: 'station2', title: '강남대역',     lat: 37.270780, lng: 127.125569 },
-  { id: 'station3', title: '샬롬관 앞',    lat: 37.274566, lng: 127.130307 },
-  { id: 'station4', title: '교육관 앞',    lat: 37.275690, lng: 127.133470 },
-  { id: 'station5', title: '이공관 앞',    lat: 37.276645, lng: 127.134479 },
-  { id: 'station6', title: '스타벅스 앞',  lat: 37.270928, lng: 127.125917 },
-  { id: 'station7', title: '기흥역 도착',  lat: 37.274618, lng: 127.116129 },
+  { id: 'station2', title: '강남대역 앞', lat: 37.27078, lng: 127.125569, visible: true },
+  { id: 'station3', title: '샬롬관 앞', lat: 37.274566, lng: 127.130307, visible: true },
+  { id: 'station4', title: '교육관 앞', lat: 37.27569, lng: 127.13347, visible: true },
+  { id: 'station5', title: '이공관 앞', lat: 37.276645, lng: 127.134479, visible: true },
+  { id: 'station6', title: '스타벅스 앞', lat: 37.270928, lng: 127.125917, visible: true },
+  { id: 'station7', title: '기흥역', lat: 37.274618, lng: 127.116129, visible: true },
 ];
 
-export const GIHEUNG_IDS = ['station1', 'station7'];
-
 export const getGiheungGroupCoord = () => {
-  const a = STATIONS.find((s) => s.id === 'station1');
-  const b = STATIONS.find((s) => s.id === 'station7');
-  return {
-    latitude: (a.lat + b.lat) / 2,
-    longitude: (a.lng + b.lng) / 2,
-  };
+  const arrival = STATIONS.find((s) => s.id === 'station7');
+  if (arrival) {
+    return { latitude: arrival.lat, longitude: arrival.lng };
+  }
+  return { latitude: 37.274618, longitude: 127.116129 };
 };
 
 export const indexOfStation = (id) => STATIONS.findIndex((s) => s.id === id);
 
-// ✅ 비즈니스 룰: goal이 아래 키면 해당 정류장을 반드시 경유
 export const MUST_PASS_BY = {
-  station6: ['station5'], // 스타벅스 앞 갈 때 이공관 앞은 무조건 거침
-  station7: ['station5'], // 기흥역 도착도 이공관 앞을 무조건 거침
+  station6: ['station5'],
+  station7: ['station5'],
 };

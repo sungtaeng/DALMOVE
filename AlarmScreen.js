@@ -1,110 +1,348 @@
 // /AlarmScreen.js
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, Vibration } from 'react-native';
-import { db } from './firebaseConfig'; // 경로는 실제 위치에 맞게
-import { ref, onValue } from 'firebase/database';
-import { navRouteSummary } from './services/naverDirections';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Alert,
+  Vibration,
+  ActivityIndicator,
+  ScrollView,
+} from 'react-native';
 
-const NAVER_KEYS = {
-  keyId: 'u6w3cppkl8',
-  keySecret: '7kMTpyh0B2rScqRev2pwcwGYb9WZEJwT7qyv4GvN',
+import useDrivers from './hooks/useDrivers';
+import { STATIONS } from './constants/stations';
+import { NAVER_CONFIG } from './config/appConfig';
+import { navRouteSummary } from './services/naverDirections';
+import { loopRouteEstimate } from './utils/geo';
+import { COLORS, RADIUS, SHADOWS } from './config/theme';
+
+const formatEta = (durationMs) => {
+  const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes === 0) return `${seconds}초`;
+  if (seconds === 0) return `${minutes}분`;
+  return `${minutes}분 ${seconds}초`;
 };
 
-const STATIONS = [
-  { id: 'station1', title: '기흥역 출발', lat: 37.274514, lng: 127.116160 },
-  { id: 'station2', title: '강남대역',     lat: 37.270780, lng: 127.125569 },
-  { id: 'station3', title: '샬롬관 앞',    lat: 37.274566, lng: 127.130307 },
-  { id: 'station4', title: '교육관 앞',    lat: 37.275690, lng: 127.133470 },
-  { id: 'station5', title: '이공관 앞',    lat: 37.276645, lng: 127.134479 },
-  { id: 'station6', title: '스타벅스 앞',  lat: 37.270928, lng: 127.125917 },
-  { id: 'station7', title: '기흥역 도착',  lat: 37.274618, lng: 127.116129 },
-];
-
-let alarmTimer = null;
-
 export default function AlarmScreen() {
+  const { driverLocations } = useDrivers();
   const [selectedStation, setSelectedStation] = useState(null);
+  const [bestEstimate, setBestEstimate] = useState(null);
   const [eta, setEta] = useState(null);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const alarmTimerRef = useRef(null);
+  const scheduleCacheRef = useRef({ driverId: null, duration: null, stationId: null });
+
+  const clearAlarmTimer = useCallback(() => {
+    if (alarmTimerRef.current) {
+      clearTimeout(alarmTimerRef.current);
+      alarmTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleAlarm = useCallback(
+    (durationMs, stationTitle) => {
+      clearAlarmTimer();
+      const triggerMs = Math.max(0, durationMs - 30_000);
+      alarmTimerRef.current = setTimeout(() => {
+        Vibration.vibrate();
+        Alert.alert('알림', `${stationTitle} 도착 30초 전입니다.`);
+      }, triggerMs);
+    },
+    [clearAlarmTimer]
+  );
+
+  useEffect(() => clearAlarmTimer, [clearAlarmTimer]);
+
+  const computeBestEstimate = useCallback(async (station, drivers) => {
+    const entries = Object.entries(drivers || {});
+    if (!entries.length) return null;
+
+    const enriched = await Promise.all(
+      entries.map(async ([busId, point]) => {
+        if (!point?.lat || !point?.lng) return null;
+        const origin = { lat: point.lat, lng: point.lng };
+        try {
+          const res = await navRouteSummary(origin, station, NAVER_CONFIG);
+          return {
+            ok: true,
+            busId,
+            duration: res.duration,
+            distance: typeof res.distance === 'number' ? res.distance : null,
+          };
+        } catch (err) {
+          const fallback = loopRouteEstimate(origin, station);
+          if (!fallback) return null;
+          return {
+            ok: true,
+            busId,
+            duration: fallback.duration,
+            distance: fallback.distance ?? null,
+          };
+        }
+      })
+    );
+
+    const candidates = enriched.filter(Boolean);
+    if (!candidates.length) return null;
+    candidates.sort((a, b) => a.duration - b.duration);
+    return candidates[0];
+  }, []);
 
   useEffect(() => {
-    if (!selectedStation) return;
+    let cancelled = false;
 
-    const driverRef = ref(db, 'drivers/driver1');
-    const unsubscribe = onValue(driverRef, async (snapshot) => {
-      const data = snapshot.val();
-      if (data?.latitude && data?.longitude) {
-        const driverLoc = { lat: Number(data.latitude), lng: Number(data.longitude) };
-        await getRouteInfo(driverLoc, selectedStation);
-      }
-    });
+    if (!selectedStation) {
+      setBestEstimate(null);
+      setEta(null);
+      setError(null);
+      scheduleCacheRef.current = { driverId: null, duration: null, stationId: null };
+      clearAlarmTimer();
+      return undefined;
+    }
+
+    if (!Object.keys(driverLocations || {}).length) {
+      setLoading(false);
+      setBestEstimate(null);
+      setEta(null);
+      setError('운행 중인 버스가 없습니다.');
+      clearAlarmTimer();
+      scheduleCacheRef.current = { driverId: null, duration: null, stationId: null };
+      return undefined;
+    }
+
+    setLoading(true);
+    computeBestEstimate(selectedStation, driverLocations)
+      .then((result) => {
+        if (cancelled) return;
+        setLoading(false);
+        if (!result) {
+          setBestEstimate(null);
+          setEta(null);
+          setError('경로 정보를 가져오지 못했습니다.');
+          clearAlarmTimer();
+          scheduleCacheRef.current = { driverId: null, duration: null, stationId: null };
+          return;
+        }
+        setBestEstimate(result);
+        setEta(formatEta(result.duration));
+        setError(null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setLoading(false);
+        setBestEstimate(null);
+        setEta(null);
+        setError(err?.message || '경로 계산 오류');
+        clearAlarmTimer();
+        scheduleCacheRef.current = { driverId: null, duration: null, stationId: null };
+      });
 
     return () => {
-      clearTimeout(alarmTimer);
-      unsubscribe();
+      cancelled = true;
     };
-  }, [selectedStation]);
+  }, [selectedStation, driverLocations, computeBestEstimate, clearAlarmTimer]);
 
-  const getRouteInfo = async (origin, goalStation) => {
-    try {
-      const { duration } = await navRouteSummary(origin, goalStation, NAVER_KEYS);
-      const totalSeconds = Math.floor(duration / 1000);
-      const minutes = Math.floor(totalSeconds / 60);
-      const seconds = totalSeconds % 60;
-
-      setEta(`${minutes}분 ${seconds}초`);
-
-      const milliseconds = totalSeconds * 1000 - 30000; // 30초 전 알림
-      clearTimeout(alarmTimer);
-      alarmTimer = setTimeout(() => {
-        Vibration.vibrate();
-        Alert.alert('⏰ 알람', `${goalStation.title} 도착까지 30초 남았습니다!`);
-      }, Math.max(0, milliseconds));
-    } catch (err) {
-      Alert.alert('ETA 계산 실패', `${err.code || ''} ${err.message || String(err)}`);
+  useEffect(() => {
+    if (!selectedStation) {
+      setEta(null);
+      clearAlarmTimer();
+      scheduleCacheRef.current = { driverId: null, duration: null, stationId: null };
+      return;
     }
-  };
+
+    if (!bestEstimate) {
+      if (!loading) {
+        setEta(null);
+        clearAlarmTimer();
+        scheduleCacheRef.current = { driverId: null, duration: null, stationId: null };
+      }
+      return;
+    }
+
+    const cache = scheduleCacheRef.current;
+    if (
+      cache.driverId !== bestEstimate.busId
+      || cache.duration !== bestEstimate.duration
+      || cache.stationId !== selectedStation.id
+    ) {
+      scheduleCacheRef.current = {
+        driverId: bestEstimate.busId,
+        duration: bestEstimate.duration,
+        stationId: selectedStation.id,
+      };
+      scheduleAlarm(bestEstimate.duration, selectedStation.title);
+    }
+  }, [bestEstimate, selectedStation, loading, scheduleAlarm, clearAlarmTimer]);
 
   const cancelAlarm = () => {
-    clearTimeout(alarmTimer);
+    clearAlarmTimer();
     setSelectedStation(null);
+    setBestEstimate(null);
     setEta(null);
-    Alert.alert('알람 취소됨');
+    setError(null);
+  };
+
+  const renderStationChip = (station) => {
+    const isSelected = selectedStation?.id === station.id;
+    return (
+      <TouchableOpacity
+        key={station.id}
+        style={[styles.stationChip, isSelected && styles.stationChipActive]}
+        onPress={() => setSelectedStation(station)}
+      >
+        <Text style={[styles.stationChipText, isSelected && styles.stationChipTextActive]}>
+          {station.title}
+        </Text>
+      </TouchableOpacity>
+    );
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>🎯 도착지 선택</Text>
+    <ScrollView contentContainerStyle={styles.container}>
+      <Text style={styles.title}>달빛 알람</Text>
+      <Text style={styles.subtitle}>
+        정류장을 선택하면 달무브가 가장 가까운 버스를 찾아  알람을 예약해 드려요.
+      </Text>
 
-      <FlatList
-        data={STATIONS}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.stationButton}
-            onPress={() => setSelectedStation(item)}
-          >
-            <Text style={styles.stationText}>{item.title}</Text>
-          </TouchableOpacity>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>정류장 선택</Text>
+        <View style={styles.stationGrid}>{STATIONS.map(renderStationChip)}</View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>가장 빠른 버스</Text>
+        {loading && (
+          <View style={styles.loaderBox}>
+            <ActivityIndicator size="large" color={COLORS.primary} />
+            <Text style={styles.loaderText}>최단 경로를 찾는 중입니다...</Text>
+          </View>
         )}
-      />
+        {!loading && selectedStation && !bestEstimate && (
+          <View style={styles.blankCard}>
+            <Text style={styles.blankText}>{error || '운행 중인 버스를 찾지 못했습니다.'}</Text>
+          </View>
+        )}
+        {!loading && bestEstimate && (
+          <View style={styles.busCard}>
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>가장 빠른 버스</Text>
+            </View>
+          
+            <Text style={styles.etaText}>{eta}</Text>
+            <Text style={styles.busMeta}>
+              {selectedStation?.title || ''}까지
+              {bestEstimate.distance != null ? ` · ${(bestEstimate.distance / 1000).toFixed(2)} km` : ''}
+            </Text>
+          </View>
+        )}
+      </View>
 
-      {selectedStation && (
-        <View style={{ marginTop: 20 }}>
-          <Text>도착지: {selectedStation.title}</Text>
-          <Text>도착예정시간: {eta || '계산 중...'}</Text>
-          <TouchableOpacity onPress={cancelAlarm} style={styles.cancelButton}>
-            <Text style={{ color: 'white' }}>⛔ 알람 취소</Text>
-          </TouchableOpacity>
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>알람 상태</Text>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLine}>정류장 · {selectedStation?.title || '미선택'}</Text>
+          <Text style={styles.summaryLine}>몇 분 후 도착 · {eta || (selectedStation ? '계산 중...' : '-')}</Text>
+        
+          {selectedStation && (
+            <TouchableOpacity style={styles.cancelButton} onPress={cancelAlarm}>
+              <Text style={styles.cancelText}>알람 취소</Text>
+            </TouchableOpacity>
+          )}
         </View>
-      )}
-    </View>
+      </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, backgroundColor: '#fff' },
-  title: { fontSize: 20, fontWeight: 'bold', marginBottom: 20 },
-  stationButton: { padding: 15, marginVertical: 5, backgroundColor: '#eee', borderRadius: 10 },
-  stationText: { fontSize: 16 },
-  cancelButton: { marginTop: 10, backgroundColor: 'red', padding: 10, borderRadius: 8, alignItems: 'center' },
+  container: {
+    flexGrow: 1,
+    paddingVertical: 30,
+    paddingHorizontal: 24,
+    backgroundColor: COLORS.background,
+  },
+  title: { fontSize: 28, fontWeight: '800', color: COLORS.text },
+  subtitle: { marginTop: 8, color: COLORS.textMuted, lineHeight: 21 },
+  section: { marginTop: 28 },
+  sectionTitle: { fontSize: 18, fontWeight: '700', color: COLORS.text, marginBottom: 14 },
+  stationGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  stationChip: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: RADIUS.md,
+    backgroundColor: '#fceec3',
+  },
+  stationChipActive: {
+    backgroundColor: COLORS.primary,
+    shadowColor: '#ffbb48',
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 4,
+  },
+  stationChipText: { color: COLORS.text, fontWeight: '600' },
+  stationChipTextActive: { color: '#fff' },
+  loaderBox: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    paddingVertical: 36,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...SHADOWS.card,
+  },
+  loaderText: { marginTop: 12, color: COLORS.textMuted, fontSize: 14 },
+  blankCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    paddingVertical: 32,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...SHADOWS.card,
+  },
+  blankText: { color: COLORS.textMuted, fontSize: 14 },
+  busCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    padding: 28,
+    ...SHADOWS.card,
+  },
+  badge: {
+    alignSelf: 'flex-start',
+    backgroundColor: COLORS.badge,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: RADIUS.pill,
+    marginBottom: 18,
+  },
+  badgeText: { color: COLORS.primaryDark, fontWeight: '700', fontSize: 12 },
+  busId: { fontSize: 22, fontWeight: '700', color: COLORS.text },
+  etaText: { fontSize: 46, fontWeight: '800', color: COLORS.primary, marginTop: 10 },
+  busMeta: { marginTop: 10, color: COLORS.textMuted },
+  summaryCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.lg,
+    padding: 24,
+    ...SHADOWS.floating,
+  },
+  summaryLine: { fontSize: 15, color: COLORS.text, fontWeight: '600', marginBottom: 10 },
+  cancelButton: {
+    marginTop: 18,
+    backgroundColor: COLORS.primary,
+    paddingVertical: 14,
+    borderRadius: RADIUS.md,
+    alignItems: 'center',
+    shadowColor: '#ffbb48',
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
+  },
+  cancelText: { color: '#fff', fontWeight: '700', fontSize: 16 },
 });

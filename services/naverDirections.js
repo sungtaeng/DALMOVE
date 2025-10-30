@@ -1,6 +1,7 @@
 // /services/naverDirections.js
 import axios from 'axios';
 import { STATIONS, MUST_PASS_BY } from '../constants/stations';
+import { NAVER_CONFIG } from '../config/appConfig';
 
 // 좌표 검증/정규화
 function normalizePoint(p) {
@@ -41,7 +42,9 @@ function dedupeStationsKeepOrder(arr) {
  * @param {Object} goalRaw   {id,lat,lng}
  * @param {Object} keys      { keyId, keySecret }
  */
-export async function navRouteSummary(originRaw, goalRaw, { keyId, keySecret }) {
+export async function navRouteSummary(originRaw, goalRaw, keys = NAVER_CONFIG) {
+  const keyId = keys?.keyId;
+  const keySecret = keys?.keySecret;
   if (!keyId || !keySecret) {
     const e = new Error('NAVER_KEYS_MISSING');
     e.code = 'NAVER_KEYS_MISSING';
