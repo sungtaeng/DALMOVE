@@ -1,13 +1,13 @@
 // /hooks/usePresenceGeofence.js
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Geolocation from '@react-native-community/geolocation';
 import { setPresence, heartbeatPresenceRTDB } from '../firebaseConfig';
 import { findNearestStation } from '../utils/geo';
 
 const DEFAULT_GEOFENCE_OPTIONS = {
-  geofenceRadiusM: 80,
+  geofenceRadiusM: 100,
   exitRadiusM: 120,
-  dwellTimeMs: 100_000,
+  dwellTimeMs: 10_000,
   heartbeatMs: 30_000,
 };
 
@@ -27,14 +27,14 @@ export default function usePresenceGeofence(options = {}) {
   const heartbeatTimerRef = useRef(null);
   const [state, setState] = useState({ stopId: null, waiting: false });
 
-  const clearHeartbeat = () => {
+  const clearHeartbeat = useCallback(() => {
     if (heartbeatTimerRef.current) {
       clearInterval(heartbeatTimerRef.current);
       heartbeatTimerRef.current = null;
     }
-  };
+  }, []);
 
-  const resetPresence = () => {
+  const resetPresence = useCallback(() => {
     if (waitingRef.current && activeStopIdRef.current) {
       setPresence(activeStopIdRef.current, false).catch(() => {});
     }
@@ -44,7 +44,7 @@ export default function usePresenceGeofence(options = {}) {
     dwellStartRef.current = null;
     clearHeartbeat();
     setState({ stopId: null, waiting: false });
-  };
+  }, [clearHeartbeat]);
 
   useEffect(() => {
     if (!enabled) {
@@ -112,7 +112,15 @@ export default function usePresenceGeofence(options = {}) {
       Geolocation.clearWatch?.(watchId);
       resetPresence();
     };
-  }, [enabled, geofenceRadiusM, exitRadiusM, dwellTimeMs, heartbeatMs]);
+  }, [
+    enabled,
+    geofenceRadiusM,
+    exitRadiusM,
+    dwellTimeMs,
+    heartbeatMs,
+    clearHeartbeat,
+    resetPresence,
+  ]);
 
   return state;
 }

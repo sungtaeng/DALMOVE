@@ -8,6 +8,8 @@ let _driverId = null;
 let _listeners = new Set();
 let _geocodeKey = null;
 let _reverseGeocode = false;
+let _refreshTimer = null;
+const FALLBACK_INTERVAL_MS = 30_000;
 
 function notify(update) {
   _listeners.forEach(fn => { try { fn(update); } catch {} });
@@ -56,6 +58,7 @@ export function start(opts = {}) {
   const high = opts.highAccuracy ?? true;
   const dist = opts.distanceFilter ?? 5;
   const interval = opts.intervalMs ?? 5000;
+  const fallbackInterval = opts.fallbackIntervalMs ?? FALLBACK_INTERVAL_MS;
 
   _running = true;
 
@@ -82,6 +85,15 @@ export function start(opts = {}) {
       useSignificantChanges: false,
     }
   );
+
+  if (_refreshTimer) {
+    clearInterval(_refreshTimer);
+    _refreshTimer = null;
+  }
+  _refreshTimer = setInterval(() => {
+    if (!_running) return;
+    pushOnce().catch(() => {});
+  }, fallbackInterval);
 }
 
 /** 현재 위치 한 번만 업로드 */
@@ -108,6 +120,10 @@ export async function stop(opts = {}) {
   if (_watchId != null) {
     Geolocation.clearWatch(_watchId);
     _watchId = null;
+  }
+  if (_refreshTimer) {
+    clearInterval(_refreshTimer);
+    _refreshTimer = null;
   }
   const removeDb = !!opts.removeFromDb;
   if (removeDb && _driverId) {

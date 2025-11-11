@@ -1,4 +1,4 @@
-// /AlarmScreen.js
+﻿// /AlarmScreen.js
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
@@ -17,6 +17,11 @@ import { NAVER_CONFIG } from './config/appConfig';
 import { navRouteSummary } from './services/naverDirections';
 import { loopRouteEstimate } from './utils/geo';
 import { COLORS, RADIUS, SHADOWS } from './config/theme';
+import {
+  ensureNotificationPermission,
+  scheduleAlarmNotification,
+  cancelAlarmNotification,
+} from './services/notificationService';
 
 const formatEta = (durationMs) => {
   const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
@@ -35,29 +40,40 @@ export default function AlarmScreen() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const alarmTimerRef = useRef(null);
+  const scheduledAlarmIdRef = useRef(null);
   const scheduleCacheRef = useRef({ driverId: null, duration: null, stationId: null });
 
-  const clearAlarmTimer = useCallback(() => {
-    if (alarmTimerRef.current) {
-      clearTimeout(alarmTimerRef.current);
-      alarmTimerRef.current = null;
+  const clearScheduledAlarm = useCallback(() => {
+    if (scheduledAlarmIdRef.current) {
+      cancelAlarmNotification(scheduledAlarmIdRef.current);
+      scheduledAlarmIdRef.current = null;
     }
   }, []);
 
   const scheduleAlarm = useCallback(
-    (durationMs, stationTitle) => {
-      clearAlarmTimer();
+    async (durationMs, stationTitle) => {
+      const granted = await ensureNotificationPermission();
+      if (!granted) {
+        Alert.alert('알림 권한 필요', '알림 권한을 허용해야 백그라운드 알람을 울릴 수 있어요.');
+        return;
+      }
       const triggerMs = Math.max(0, durationMs - 30_000);
-      alarmTimerRef.current = setTimeout(() => {
+      const fireDate = new Date(Date.now() + triggerMs);
+      clearScheduledAlarm();
+      scheduledAlarmIdRef.current = scheduleAlarmNotification({
+        fireDate,
+        title: '달무브 알람',
+        message: `${stationTitle} 도착 30초 전이에요.`,
+      });
+      if (triggerMs <= 0) {
         Vibration.vibrate();
-        Alert.alert('알림', `${stationTitle} 도착 30초 전입니다.`);
-      }, triggerMs);
+      }
+      Alert.alert('알람 예약', `${stationTitle} 알람이 설정되었습니다.`);
     },
-    [clearAlarmTimer]
+    [clearScheduledAlarm]
   );
 
-  useEffect(() => clearAlarmTimer, [clearAlarmTimer]);
+  useEffect(() => clearScheduledAlarm, [clearScheduledAlarm]);
 
   const computeBestEstimate = useCallback(async (station, drivers) => {
     const entries = Object.entries(drivers || {});
@@ -102,7 +118,7 @@ export default function AlarmScreen() {
       setEta(null);
       setError(null);
       scheduleCacheRef.current = { driverId: null, duration: null, stationId: null };
-      clearAlarmTimer();
+      clearScheduledAlarm();
       return undefined;
     }
 
@@ -111,7 +127,7 @@ export default function AlarmScreen() {
       setBestEstimate(null);
       setEta(null);
       setError('운행 중인 버스가 없습니다.');
-      clearAlarmTimer();
+      clearScheduledAlarm();
       scheduleCacheRef.current = { driverId: null, duration: null, stationId: null };
       return undefined;
     }
@@ -125,7 +141,7 @@ export default function AlarmScreen() {
           setBestEstimate(null);
           setEta(null);
           setError('경로 정보를 가져오지 못했습니다.');
-          clearAlarmTimer();
+          clearScheduledAlarm();
           scheduleCacheRef.current = { driverId: null, duration: null, stationId: null };
           return;
         }
@@ -139,19 +155,19 @@ export default function AlarmScreen() {
         setBestEstimate(null);
         setEta(null);
         setError(err?.message || '경로 계산 오류');
-        clearAlarmTimer();
+        clearScheduledAlarm();
         scheduleCacheRef.current = { driverId: null, duration: null, stationId: null };
       });
 
     return () => {
       cancelled = true;
     };
-  }, [selectedStation, driverLocations, computeBestEstimate, clearAlarmTimer]);
+  }, [selectedStation, driverLocations, computeBestEstimate, clearScheduledAlarm]);
 
   useEffect(() => {
     if (!selectedStation) {
       setEta(null);
-      clearAlarmTimer();
+      clearScheduledAlarm();
       scheduleCacheRef.current = { driverId: null, duration: null, stationId: null };
       return;
     }
@@ -159,7 +175,7 @@ export default function AlarmScreen() {
     if (!bestEstimate) {
       if (!loading) {
         setEta(null);
-        clearAlarmTimer();
+        clearScheduledAlarm();
         scheduleCacheRef.current = { driverId: null, duration: null, stationId: null };
       }
       return;
@@ -178,10 +194,10 @@ export default function AlarmScreen() {
       };
       scheduleAlarm(bestEstimate.duration, selectedStation.title);
     }
-  }, [bestEstimate, selectedStation, loading, scheduleAlarm, clearAlarmTimer]);
+  }, [bestEstimate, selectedStation, loading, scheduleAlarm, clearScheduledAlarm]);
 
   const cancelAlarm = () => {
-    clearAlarmTimer();
+    clearScheduledAlarm();
     setSelectedStation(null);
     setBestEstimate(null);
     setEta(null);
@@ -207,7 +223,7 @@ export default function AlarmScreen() {
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>달빛 알람</Text>
       <Text style={styles.subtitle}>
-        정류장을 선택하면 달무브가 가장 가까운 버스를 찾아  알람을 예약해 드려요.
+        정류장을 선택하면 달무브가 가장 가까운 버스를 찾아 알람을 예약해 드려요.
       </Text>
 
       <View style={styles.section}>
@@ -247,7 +263,7 @@ export default function AlarmScreen() {
         <Text style={styles.sectionTitle}>알람 상태</Text>
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLine}>정류장 · {selectedStation?.title || '미선택'}</Text>
-          <Text style={styles.summaryLine}>몇 분 후 도착 · {eta || (selectedStation ? '계산 중...' : '-')}</Text>
+          <Text style={styles.summaryLine}>도착까지 걸리는 시간 · {eta || (selectedStation ? '계산 중...' : '-')}</Text>
         
           {selectedStation && (
             <TouchableOpacity style={styles.cancelButton} onPress={cancelAlarm}>
@@ -346,3 +362,8 @@ const styles = StyleSheet.create({
   },
   cancelText: { color: '#fff', fontWeight: '700', fontSize: 16 },
 });
+
+
+
+
+

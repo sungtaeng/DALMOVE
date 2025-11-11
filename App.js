@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -12,6 +12,7 @@ import {
   TouchableOpacity,
   Animated,
   Image,
+  ScrollView,
 } from 'react-native';
 import AntDesign from 'react-native-vector-icons/AntDesign';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -23,6 +24,7 @@ import NoticeScreen from './NoticeScreen';
 import SplashScreen from './components/SplashScreen';
 import { BRANDING, DRIVER_ACCESS_CODE } from './config/appConfig';
 import { COLORS, IMAGES, RADIUS, SHADOWS } from './config/theme';
+import { initNotifications } from './services/notificationService';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -33,10 +35,66 @@ const TAB_ICON_MAP = {
   AlarmCenter: 'notification',
 };
 
+const TRAVEL_MESSAGE_GROUPS = {
+  morning: {
+    heading: "🌅 Good Morning",
+    cheer: [
+      "🌞 오늘도 달무브처럼 부드럽게 출발하자!",
+      "🚍 오늘은 네가 주인공이야, 멋진 하루 만들자!",
+      "💫 달빛은 아직 잠들었지만, 넌 이미 반짝이고 있어.",
+      "☕ 하루의 첫 여정, 달무브가 든든히 함께 달릴게.",
+      "📚 오늘은 어제보다 한 걸음 더 성장하는 날!",
+      "🌕 달빛이 사라져도 너의 빛은 꺼지지 않아. 파이팅!",
+      "💪 오늘도 늦지 않게, 당당하게 달려보자!",
+      "✨ 출발선에서부터 이미 멋진 하루야.",
+    ],
+    safety: [
+      "🚸 버스가 완전히 멈춘 뒤에 천천히 올라타요.",
+      "☀️ 길 건널 땐 휴대폰보다 신호등을 먼저 봐요!",
+      "🚌 기사님과 눈 마주치면 더 안전하게 탈 수 있어요.",
+      "🧢 이어폰 볼륨을 살짝 낮추면 주변이 잘 들려요.",
+      "🌤️ 정류장에서 뛰지 말고 달무브를 기다려요.",
+      "👟 가방 끈은 꽉! 마음은 여유롭게!",
+      "📱 핸드폰 보다가 버스 놓치면 오늘의 시작이 늦어진다! 😉",
+    ],
+  },
+  evening: {
+    heading: "🌙 Good Bye",
+    cheer: [
+      "🌕 오늘도 수고했어, 달빛이 너를 집까지 데려다줄 거야.",
+      "💛 하루의 끝, 이제는 달무브가 안전하게 마무리할게.",
+      "💤 달빛이 네 어깨에 내려앉을 시간이야. 편히 쉬자.",
+      "🚌 오늘의 피로는 버스에 맡기고, 달무브 타고 귀가~",
+      "🌌 하루 종일 달려온 너, 이제 달빛 아래로 천천히.",
+      "✨ 별보다 먼저 반짝이는 퇴근길, 수고 많았어!",
+      "💫 하루의 끝도 아름답게 — 달무브가 함께 달려요.",
+      "☁️ 오늘의 걱정은 모두 하차하세요 :)",
+    ],
+    safety: [
+      "🚦 내릴 땐 꼭 뒤를 확인하고 천천히 하차해요.",
+      "🦺 밤엔 어두우니까, 휴대폰 불빛을 켜 두면 좋아요.",
+      "🌙 달무브 하차 시 친구와 함께 내리면 더 안전해요.",
+      "📱 귀가 중엔 이어폰을 잠시 빼두세요 — 안전이 우선이에요.",
+      "🛣️ 도로 근처에선 장난은 No! 별 보면서 걸어요.",
+      "🚶 달무브가 멈춘 후, 기사님께 인사 잊지 말기 :)",
+      "🌃 정류장에서 뛰면 별보다 빨리 넘어질 수 있어요 😅",
+    ],
+  },
+};
+
+const pickRandomLine = (list) => list[Math.floor(Math.random() * list.length)];
+
 const HomeScreen = ({ navigation }) => {
   const [showModal, setShowModal] = useState(false);
   const [password, setPassword] = useState('');
   const floatAnim = useRef(new Animated.Value(0)).current;
+  const [travelMode, setTravelMode] = useState('morning');
+  const [cheerLine, setCheerLine] = useState(() =>
+    pickRandomLine(TRAVEL_MESSAGE_GROUPS.morning.cheer)
+  );
+  const [safetyLine, setSafetyLine] = useState(() =>
+    pickRandomLine(TRAVEL_MESSAGE_GROUPS.morning.safety)
+  );
 
   useEffect(() => {
     Animated.loop(
@@ -51,6 +109,12 @@ const HomeScreen = ({ navigation }) => {
     inputRange: [0, 1],
     outputRange: [0, -12],
   });
+
+  useEffect(() => {
+    const group = TRAVEL_MESSAGE_GROUPS[travelMode];
+    setCheerLine(pickRandomLine(group.cheer));
+    setSafetyLine(pickRandomLine(group.safety));
+  }, [travelMode]);
 
   const handleDriverAccess = () => {
     if (!DRIVER_ACCESS_CODE) {
@@ -67,7 +131,11 @@ const HomeScreen = ({ navigation }) => {
   };
 
   return (
-    <View style={styles.homeContainer}>
+    <ScrollView
+      style={styles.homeScroll}
+      contentContainerStyle={styles.homeContainer}
+      showsVerticalScrollIndicator={false}
+    >
       <View style={styles.hero}>
         <Image source={IMAGES.moon} style={styles.moonArt} resizeMode="contain" />
         <Animated.Image
@@ -82,7 +150,7 @@ const HomeScreen = ({ navigation }) => {
         </Text>
       </View>
 
-      <View style={styles.actions}>
+  <View style={styles.actions}>
         <TouchableOpacity
           style={styles.primaryButton}
           onPress={() => navigation.navigate('StudentTabs')}
@@ -95,33 +163,58 @@ const HomeScreen = ({ navigation }) => {
           <Text style={styles.secondaryButtonText}>{BRANDING.driverButton}</Text>
           <Text style={styles.buttonCaptionDark}>위치 전송 · 운행 관리</Text>
         </TouchableOpacity>
-      </View>
+  </View>
 
       <View style={styles.infoDeck}>
         <View style={styles.highlightCard}>
-          <Text style={styles.highlightTitle}>오늘의 달빛 추천</Text>
+          <Text style={styles.highlightTitle}>오늘의 달빛 메시지</Text>
           <Text style={styles.highlightSubtitle}>
-            오늘의 달은 무슨 달입니다!
+            {TRAVEL_MESSAGE_GROUPS[travelMode].heading}
           </Text>
-          <View style={styles.highlightRow}>
-            <View>
-              <Text style={styles.highlightMetric}>17:40</Text>
-              <Text style={styles.highlightMetricLabel}>예상 도착</Text>
-            </View>
-            <View>
-              <Text style={styles.highlightMetric}>8분</Text>
-              <Text style={styles.highlightMetricLabel}>기다리면 만나요</Text>
-            </View>
+
+          <View style={styles.modeToggleRow}>
+            <TouchableOpacity
+              style={[styles.modeButton, travelMode === 'morning' && styles.modeButtonActive]}
+              onPress={() => setTravelMode('morning')}
+            >
+              <Text
+                style={[
+                  styles.modeButtonText,
+                  travelMode === 'morning' && styles.modeButtonTextActive,
+                ]}
+              >
+                등교길
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modeButton, travelMode === 'evening' && styles.modeButtonActive]}
+              onPress={() => setTravelMode('evening')}
+            >
+              <Text
+                style={[
+                  styles.modeButtonText,
+                  travelMode === 'evening' && styles.modeButtonTextActive,
+                ]}
+              >
+                하교길
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.messageBlock}>
+            <Text style={styles.messageLabel}>💬 응원 문구</Text>
+            <Text style={styles.messageBody}>{cheerLine}</Text>
+          </View>
+
+          <View style={styles.messageBlock}>
+            <Text style={styles.messageLabel}>🦺 안전 문구</Text>
+            <Text style={styles.messageBody}>{safetyLine}</Text>
           </View>
         </View>
 
-        <View style={styles.tipCard}>
-          <Text style={styles.tipTitle}>달무브 꿀팁</Text>
-          <Text style={styles.tipText}>
-            정류장 대기 공유를 켜두면 함께 타는 친구들이 혼잡도를 미리 확인할 수 있어요.
-          </Text>
-        </View>
+       
       </View>
+
 
       <Modal
         visible={showModal}
@@ -154,7 +247,7 @@ const HomeScreen = ({ navigation }) => {
           </View>
         </View>
       </Modal>
-    </View>
+    </ScrollView>
   );
 };
 
@@ -187,26 +280,31 @@ const StudentTabs = () => {
         },
       })}
     >
-      <Tab.Screen
-        name="StudentMain"
-        component={StudentScreen}
-        options={{ title: '학생', tabBarLabel: '학생' }}
-      />
+      
       <Tab.Screen
         name="NoticeBoard"
         component={NoticeScreen}
         options={{ title: '공지사항', tabBarLabel: '공지' }}
       />
       <Tab.Screen
+        name="StudentMain"
+        component={StudentScreen}
+        options={{ title: '학생', tabBarLabel: '홈' }}
+      />
+      <Tab.Screen
         name="AlarmCenter"
         component={AlarmScreen}
-        options={{ title: '알림', tabBarLabel: '알림' }}
+        options={{ title: '알림', tabBarLabel: '알람' }}
       />
     </Tab.Navigator>
   );
 };
 
 export default function App() {
+  useEffect(() => {
+    initNotifications();
+  }, []);
+
   return (
     <SafeAreaProvider>
       <NavigationContainer>
@@ -235,11 +333,12 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
+  homeScroll: { flex: 1, backgroundColor: COLORS.background },
   homeContainer: {
-    flex: 1,
-    backgroundColor: COLORS.background,
     paddingHorizontal: 26,
     paddingTop: 48,
+    paddingBottom: 40,
+    backgroundColor: COLORS.background,
   },
   hero: { marginTop: 12, marginBottom: 46, alignItems: 'flex-start' },
   brandMark: { fontSize: 16, fontWeight: '700', color: COLORS.primaryDark, letterSpacing: 4 },
@@ -278,10 +377,39 @@ const styles = StyleSheet.create({
     ...SHADOWS.card,
   },
   highlightTitle: { fontSize: 18, fontWeight: '800', color: COLORS.text },
-  highlightSubtitle: { marginTop: 8, color: COLORS.textMuted },
+  highlightSubtitle: { marginTop: 8, color: COLORS.textMuted, lineHeight: 20 },
   highlightRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 16 },
   highlightMetric: { fontSize: 24, fontWeight: '800', color: COLORS.primaryDark },
   highlightMetricLabel: { fontSize: 12, color: COLORS.textMuted, marginTop: 4 },
+  modeToggleRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 16,
+    marginBottom: 4,
+  },
+  modeButton: {
+    flex: 1,
+    borderRadius: RADIUS.md,
+    borderWidth: 1.2,
+    borderColor: COLORS.badge,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fffdf0',
+  },
+  modeButtonActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  modeButtonText: { fontWeight: '700', color: COLORS.primaryDark },
+  modeButtonTextActive: { color: '#fff' },
+  messageBlock: {
+    marginTop: 14,
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.md,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#ffe6ba',
+  },
+  messageLabel: { fontSize: 13, fontWeight: '700', color: COLORS.textMuted, marginBottom: 6 },
+  messageBody: { fontSize: 16, fontWeight: '600', color: COLORS.text, lineHeight: 20 },
   tipCard: {
     backgroundColor: COLORS.surface,
     borderRadius: RADIUS.lg,
@@ -355,3 +483,5 @@ const styles = StyleSheet.create({
     opacity: 0.95,
   },
 });
+
+

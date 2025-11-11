@@ -34,7 +34,10 @@ export default function StudentScreen({ navigation }) {
   const { driverLocations } = useDrivers();
 
   const [presenceEnabled, setPresenceEnabled] = useState(false);
-  const presenceState = usePresenceGeofence({ enabled: presenceEnabled });
+  const presenceState = usePresenceGeofence({
+    enabled: presenceEnabled,
+    dwellTimeMs: 30_000,
+  });
 
   const [snapshotDrivers, setSnapshotDrivers] = useState({});
   const effectiveDrivers = useMemo(() => {
@@ -210,17 +213,18 @@ export default function StudentScreen({ navigation }) {
             thumbColor="#fff"
             trackColor={{ true: COLORS.primary, false: '#d9dae0' }}
           />
+        </View>   
+
+        <View style={styles.tipContainer}>
+          <Text style={styles.tipLabel}>위치 공유를 켜두면, 함께 타는 친구들이 </Text>
+          <Text style={styles.tipLabel}> 좌석을 미리 확인할 수 있어요!</Text>
         </View>
+
+        <TouchableOpacity style={styles.homeButton} onPress={() => navigation.getParent()?.navigate?.('Home')}>
+          <Image source={IMAGES.bus} style={styles.homeButtonIcon} resizeMode="contain" />
+          <Text style={styles.homeButtonText}>달빛 홈으로</Text>
+        </TouchableOpacity>
       </View>
-
-      <TouchableOpacity style={styles.homeButton} onPress={() => navigation.getParent()?.navigate?.('Home')}>
-        <Image source={IMAGES.bus} style={styles.homeButtonIcon} resizeMode="contain" />
-        <Text style={styles.homeButtonText}>달빛 홈으로</Text>
-      </TouchableOpacity>
-
-      <TouchableOpacity style={styles.clearRouteButton} onPress={clearRoute}>
-        <Text style={styles.clearRouteText}>경로 초기화</Text>
-      </TouchableOpacity>
 
       <SlidePanel
         visible={panelVisible}
@@ -253,7 +257,7 @@ const styles = StyleSheet.create({
   overlayMoon: { width: '100%', height: '100%' },
   controlsOverlay: {
     position: 'absolute',
-    top: 100,
+    top: 32,
     left: 18,
     right: 18,
     backgroundColor: COLORS.surface,
@@ -277,29 +281,32 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.textMuted,
   },
-  clearRouteButton: {
-    position: 'absolute',
-    bottom: 90,
-    right: 20,
-    backgroundColor: COLORS.surface,
+  tipContainer: {
+    marginTop: 16,
+    padding: 14,
     borderRadius: RADIUS.md,
-    paddingHorizontal: 20,
-    height: 50,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...SHADOWS.floating,
+    backgroundColor: COLORS.background,
   },
-  clearRouteText: { fontSize: 14, color: COLORS.primaryDark, fontWeight: '700' },
+  tipLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: COLORS.primaryDark,
+    marginBottom: 4,
+  },
+  tipText: {
+    fontSize: 12,
+    color: COLORS.textMuted,
+    lineHeight: 18,
+  },
   homeButton: {
-    position: 'absolute',
-    top: 32,
-    right: 18,
+    marginTop: 18,
+    alignSelf: 'flex-end',
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff0ca',
     borderRadius: RADIUS.md,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
     ...SHADOWS.floating,
   },
   homeButtonIcon: { width: 20, height: 20, marginRight: 6 },
