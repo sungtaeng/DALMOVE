@@ -272,6 +272,7 @@ const StudentTabs = () => {
 
   return (
     <Tab.Navigator
+      initialRouteName="StudentMain"
       screenOptions={({ route }) => ({
         ...screenOptions,
         tabBarIcon: ({ color, size }) => {
